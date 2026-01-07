@@ -10,6 +10,7 @@ use std::thread::JoinHandle;
 use zip::ZipArchive;
 
 mod cli;
+
 use cli::Cli;
 
 enum ZipFileStatus {
@@ -286,6 +287,340 @@ fn main() {
             Err(e) => {
                 red!("❌ Failed to save log file: {}\n", e);
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs::File;
+    use std::io::Write;
+    use tempfile::TempDir;
+    use zip::write::{FileOptions, ZipWriter};
+    use zip::CompressionMethod;
+
+    /// Helper function to create a valid ZIP file with test content
+    fn create_valid_zip(path: &PathBuf) -> std::io::Result<()> {
+        let file = File::create(path)?;
+        let mut zip = ZipWriter::new(file);
+
+        let options: FileOptions<()> =
+            FileOptions::default().compression_method(CompressionMethod::Deflated);
+
+        zip.start_file("test.txt", options)?;
+        zip.write_all(b"Hello, World!")?;
+
+        zip.start_file("folder/nested.txt", options)?;
+        zip.write_all(b"Nested content")?;
+
+        zip.finish()?;
+        Ok(())
+    }
+
+    /// Helper function to create an empty but valid ZIP file
+    fn create_empty_zip(path: &PathBuf) -> std::io::Result<()> {
+        let file = File::create(path)?;
+        let zip = ZipWriter::new(file);
+        zip.finish()?;
+        Ok(())
+    }
+
+    /// Helper function to create a corrupted ZIP file
+    fn create_corrupted_zip(path: &PathBuf) -> std::io::Result<()> {
+        let mut file = File::create(path)?;
+        // Write invalid ZIP data
+        file.write_all(b"PK\x03\x04")?; // ZIP header
+        file.write_all(&[0u8; 100])?; // Corrupted data
+        Ok(())
+    }
+
+    /// Helper function to create a non-ZIP file
+    fn create_non_zip_file(path: &PathBuf) -> std::io::Result<()> {
+        let mut file = File::create(path)?;
+        file.write_all(b"This is not a ZIP file")?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_check_valid_zip() {
+        let temp_dir = TempDir::new().unwrap();
+        let zip_path = temp_dir.path().join("valid.zip");
+
+        create_valid_zip(&zip_path).unwrap();
+
+        let result = check_zip_file(&zip_path);
+
+        match result {
+            ZipFileStatus::Valid => {
+                // Test passed
+            }
+            _ => panic!("Expected Valid status for valid ZIP file"),
+        }
+    }
+
+    #[test]
+    fn test_check_empty_zip() {
+        let temp_dir = TempDir::new().unwrap();
+        let zip_path = temp_dir.path().join("empty.zip");
+
+        create_empty_zip(&zip_path).unwrap();
+
+        let result = check_zip_file(&zip_path);
+
+        match result {
+            ZipFileStatus::Valid => {
+                // Empty ZIPs are valid
+            }
+            _ => panic!("Expected Valid status for empty ZIP file"),
+        }
+    }
+
+    #[test]
+    fn test_check_corrupted_zip() {
+        let temp_dir = TempDir::new().unwrap();
+        let zip_path = temp_dir.path().join("corrupted.zip");
+
+        create_corrupted_zip(&zip_path).unwrap();
+
+        let result = check_zip_file(&zip_path);
+
+        match result {
+            ZipFileStatus::Corrupted(msg) => {
+                assert!(msg.contains("Invalid zip format") || msg.contains("Cannot read"));
+            }
+            _ => panic!("Expected Corrupted status for corrupted ZIP file"),
+        }
+    }
+
+    #[test]
+    fn test_check_non_zip_file() {
+        let temp_dir = TempDir::new().unwrap();
+        let zip_path = temp_dir.path().join("notzip.zip");
+
+        create_non_zip_file(&zip_path).unwrap();
+
+        let result = check_zip_file(&zip_path);
+
+        match result {
+            ZipFileStatus::Corrupted(msg) => {
+                assert!(msg.contains("Invalid zip format"));
+            }
+            _ => panic!("Expected Corrupted status for non-ZIP file"),
+        }
+    }
+
+    #[test]
+    fn test_check_nonexistent_file() {
+        let temp_dir = TempDir::new().unwrap();
+        let zip_path = temp_dir.path().join("nonexistent.zip");
+
+        let result = check_zip_file(&zip_path);
+
+        match result {
+            ZipFileStatus::Corrupted(msg) => {
+                assert!(msg.contains("Cannot open file"));
+            }
+            _ => panic!("Expected Corrupted status for nonexistent file"),
+        }
+    }
+
+    #[test]
+    fn test_check_result_default() {
+        let result = CheckResult::default();
+
+        assert_eq!(result.total, 0);
+        assert_eq!(result.valid, 0);
+        assert_eq!(result.skipped, 0);
+        assert_eq!(result.corrupted, 0);
+    }
+
+    #[test]
+    fn test_check_result_counters() {
+        let mut result = CheckResult::default();
+
+        result.total = 10;
+        result.valid = 7;
+        result.corrupted = 2;
+        result.skipped = 1;
+
+        assert_eq!(result.total, 10);
+        assert_eq!(result.valid, 7);
+        assert_eq!(result.corrupted, 2);
+        assert_eq!(result.skipped, 1);
+        assert_eq!(result.valid + result.corrupted + result.skipped, 10);
+    }
+
+    #[test]
+    fn test_zip_with_multiple_files() {
+        let temp_dir = TempDir::new().unwrap();
+        let zip_path = temp_dir.path().join("multi.zip");
+
+        // Create ZIP with multiple files
+        let file = File::create(&zip_path).unwrap();
+        let mut zip = ZipWriter::new(file);
+        let options: FileOptions<()> =
+            FileOptions::default().compression_method(CompressionMethod::Deflated);
+
+        // Add multiple files
+        for i in 0..10 {
+            zip.start_file(&format!("file{}.txt", i), options).unwrap();
+            zip.write_all(format!("Content {}", i).as_bytes()).unwrap();
+        }
+
+        zip.finish().unwrap();
+
+        let result = check_zip_file(&zip_path);
+
+        match result {
+            ZipFileStatus::Valid => {
+                // Test passed
+            }
+            _ => panic!("Expected Valid status for multi-file ZIP"),
+        }
+    }
+
+    #[test]
+    fn test_zip_with_nested_folders() {
+        let temp_dir = TempDir::new().unwrap();
+        let zip_path = temp_dir.path().join("nested.zip");
+
+        // Create ZIP with nested folder structure
+        let file = File::create(&zip_path).unwrap();
+        let mut zip = ZipWriter::new(file);
+        let options: FileOptions<()> =
+            FileOptions::default().compression_method(CompressionMethod::Deflated);
+
+        zip.start_file("folder1/file1.txt", options).unwrap();
+        zip.write_all(b"File 1").unwrap();
+
+        zip.start_file("folder1/folder2/file2.txt", options)
+            .unwrap();
+        zip.write_all(b"File 2").unwrap();
+
+        zip.start_file("folder1/folder2/folder3/file3.txt", options)
+            .unwrap();
+        zip.write_all(b"File 3").unwrap();
+
+        zip.finish().unwrap();
+
+        let result = check_zip_file(&zip_path);
+
+        match result {
+            ZipFileStatus::Valid => {
+                // Test passed
+            }
+            _ => panic!("Expected Valid status for nested folder ZIP"),
+        }
+    }
+
+    #[test]
+    fn test_large_zip_file() {
+        let temp_dir = TempDir::new().unwrap();
+        let zip_path = temp_dir.path().join("large.zip");
+
+        // Create ZIP with larger content
+        let file = File::create(&zip_path).unwrap();
+        let mut zip = ZipWriter::new(file);
+        let options: FileOptions<()> =
+            FileOptions::default().compression_method(CompressionMethod::Deflated);
+
+        // Add file with 1MB of data
+        zip.start_file("large.txt", options).unwrap();
+        let data = vec![b'A'; 1024 * 1024]; // 1MB
+        zip.write_all(&data).unwrap();
+
+        zip.finish().unwrap();
+
+        let result = check_zip_file(&zip_path);
+
+        match result {
+            ZipFileStatus::Valid => {
+                // Test passed
+            }
+            _ => panic!("Expected Valid status for large ZIP file"),
+        }
+    }
+
+    #[test]
+    fn test_zip_with_no_compression() {
+        let temp_dir = TempDir::new().unwrap();
+        let zip_path = temp_dir.path().join("stored.zip");
+
+        // Create ZIP with stored (no compression) method
+        let file = File::create(&zip_path).unwrap();
+        let mut zip = ZipWriter::new(file);
+        let options: FileOptions<()> =
+            FileOptions::default().compression_method(CompressionMethod::Stored);
+
+        zip.start_file("stored.txt", options).unwrap();
+        zip.write_all(b"Stored without compression").unwrap();
+
+        zip.finish().unwrap();
+
+        let result = check_zip_file(&zip_path);
+
+        match result {
+            ZipFileStatus::Valid => {
+                // Test passed
+            }
+            _ => panic!("Expected Valid status for stored ZIP file"),
+        }
+    }
+
+    #[test]
+    fn test_print_summary_no_panic() {
+        // Test that print_summary doesn't panic with various inputs
+        let result = CheckResult {
+            total: 100,
+            valid: 80,
+            corrupted: 15,
+            skipped: 5,
+        };
+
+        // This should not panic
+        print_summary(&result);
+    }
+
+    #[test]
+    fn test_print_summary_zero_values() {
+        let result = CheckResult::default();
+
+        // This should not panic even with zeros
+        print_summary(&result);
+    }
+
+    #[test]
+    fn test_path_with_spaces() {
+        let temp_dir = TempDir::new().unwrap();
+        let zip_path = temp_dir.path().join("file with spaces.zip");
+
+        create_valid_zip(&zip_path).unwrap();
+
+        let result = check_zip_file(&zip_path);
+
+        match result {
+            ZipFileStatus::Valid => {
+                // Test passed
+            }
+            _ => panic!("Expected Valid status for path with spaces"),
+        }
+    }
+
+    #[test]
+    fn test_path_with_special_chars() {
+        let temp_dir = TempDir::new().unwrap();
+        let zip_path = temp_dir.path().join("file-with_special.chars.zip");
+
+        create_valid_zip(&zip_path).unwrap();
+
+        let result = check_zip_file(&zip_path);
+
+        match result {
+            ZipFileStatus::Valid => {
+                // Test passed
+            }
+            _ => panic!("Expected Valid status for path with special chars"),
         }
     }
 }
