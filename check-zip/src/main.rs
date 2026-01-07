@@ -80,15 +80,15 @@ fn print_summary(result: &CheckResult) {
 }
 
 fn main() {
-    let cli = Cli::parse();
+    let args = Cli::parse();
 
     let zip_extensions = ["zip"];
 
-    let path = cli
+    let path = args
         .path
         .unwrap_or_else(|| current_dir().expect("Failed to get current directory"));
 
-    let save_log = cli.log.is_some();
+    let save_log = args.log.is_some();
 
     let now = chrono::Local::now();
 
@@ -103,7 +103,7 @@ fn main() {
         now.timestamp_subsec_millis(),
     );
 
-    let log = cli.log.unwrap_or_else(|| PathBuf::from(file_name.clone()));
+    let log = args.log.unwrap_or_else(|| PathBuf::from(file_name.clone()));
 
     let log = if log.is_dir() {
         log.join(file_name)

@@ -11,7 +11,6 @@ use clap::Parser;
 #[command(version, about, long_about = None)]
 pub(crate) struct Cli {
     /// Folder to operate on
-    #[arg(short, long, value_name = "FOLDER")]
     pub path: Option<PathBuf>,
 
     // Log file to write results to

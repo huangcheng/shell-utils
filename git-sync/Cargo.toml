@@ -1,0 +1,14 @@
+[package]
+name = "git-sync"
+version = "0.1.0"
+edition = "2024"
+
+authors = ["HUANG Cheng <cheng@duck.com>"]
+description = "A tool to synchronize Git repositories."
+license = "MIT"
+
+[dependencies]
+clap = { version = "4.5.54", features = ["derive"] }
+colour = "2.1.0"
+shellexpand = "3.1.1"
+which = "8.0.0"
