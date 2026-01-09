@@ -1,11 +1,10 @@
 [package]
 name = "git-sync"
-version = "0.1.0"
-edition = "2024"
-
-authors = ["HUANG Cheng <cheng@duck.com>"]
-description = "A tool to synchronize Git repositories."
-license = "MIT"
+description = "A tool to synchronize local directories with remote Git repositories."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
 
 [dependencies]
 clap = { version = "4.5.54", features = ["derive"] }

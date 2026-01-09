@@ -1,3 +1,12 @@
 [workspace]
 resolver = "3"
 members = ["check-zip", "git-sync"]
+
+[workspace.package]
+edition = "2024"
+license = "MIT"
+authors = ["HUANG Cheng <cheng@duck.com>"]
+description = "A collection of command-line tools."
+version = "0.1.0"
+publish = false
+

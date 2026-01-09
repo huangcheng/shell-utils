@@ -5,7 +5,6 @@ use clap::Parser;
 #[derive(Parser)]
 #[command(
     name = "check-zip",
-    version = "0.1.0",
     about = "A tool for checking integrity of zip archives"
 )]
 #[command(version, about, long_about = None)]
