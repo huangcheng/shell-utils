@@ -169,10 +169,13 @@ fn main() {
 
     let mut children: Vec<JoinHandle<()>> = vec![];
 
+    let corrupted = Arc::new(Mutex::new(Vec::<PathBuf>::new()));
+
     for _ in 0..cores {
         let path_lock = path_mutex.clone();
         let result_lock = result_mutex.clone();
         let log_lock = log_mutex.clone();
+        let corrupted = corrupted.clone();
 
         let cwd = cwd.clone();
 
@@ -204,6 +207,12 @@ fn main() {
                                 }
                                 ZipFileStatus::Corrupted(ref msg) => {
                                     result.corrupted += 1;
+
+                                    {
+                                        let mut corrupted_files = corrupted.lock().unwrap();
+                                        corrupted_files.push(path.clone());
+                                    }
+
                                     format!("❌ [CORRUPTED] {} - {}\n", rel_path.display(), msg)
                                 }
                                 ZipFileStatus::Unsupported => {
@@ -288,6 +297,33 @@ fn main() {
                 red!("❌ Failed to save log file: {}\n", e);
             }
         }
+    }
+
+    println!();
+
+    yellow!("Do you want to delete all corrupted zip files? (y/N): ");
+
+    use std::io::{self, Write};
+    io::stdout().flush().unwrap();
+    let mut input = String::new();
+    io::stdin().read_line(&mut input).unwrap();
+
+    if input.trim().eq_ignore_ascii_case("y") {
+        let handle = thread::spawn(move || {
+            let corrupted_files = corrupted.lock().unwrap();
+            for file in corrupted_files.iter() {
+                match std::fs::remove_file(file) {
+                    Ok(_) => {
+                        green!("🗑️ Deleted corrupted file: {}\n", file.display());
+                    }
+                    Err(e) => {
+                        red!("❌ Failed to delete file {}: {}\n", file.display(), e);
+                    }
+                }
+            }
+        });
+
+        handle.join().expect("Failed to join deletion thread");
     }
 }
 
